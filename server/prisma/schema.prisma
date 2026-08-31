@@ -1,0 +1,387 @@
+// ═══════════════════════════════════════════════════════
+//  LinkPort — Prisma Schema (PostgreSQL)
+//  Full database definition for all 12 tables
+// ═══════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ──────────────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ──────────────────────────────────────────────────────
+// TABLE 1: users
+// ──────────────────────────────────────────────────────
+model User {
+  id              String    @id @default(uuid())
+  name            String
+  email           String    @unique
+  passwordHash    String
+  isVerified      Boolean   @default(false)
+  verifyToken     String?
+  resetToken      String?
+  resetTokenExp   DateTime?
+  role String @default("USER")
+  plan String @default("FREE")
+  planExpiresAt   DateTime?
+  gdprConsent     Boolean   @default(false)
+  dpdpConsent     Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  profile         Profile?
+  payments        Payment[]
+  teamMemberships TeamMember[]
+  resumes         Resume[]
+  coverLetters    CoverLetter[]
+  portfolioDocs   PortfolioDoc[]
+  apiKey          ApiKey?
+
+  @@map("users")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 2: profiles
+// ──────────────────────────────────────────────────────
+model Profile {
+  id                  String    @id @default(uuid())
+  username            String    @unique
+  displayName         String
+  bio                 String?
+  avatarUrl           String?
+  backgroundUrl       String?
+  theme               String    @default("default")
+  primaryColor        String    @default("#6366f1")
+  buttonStyle         String    @default("rounded")
+  customDomain        String?   @unique
+  isPasswordProtected Boolean   @default(false)
+  pagePasswordHash    String?
+  isPubliclyListed    Boolean   @default(false)
+  showBranding        Boolean   @default(true)
+  seoTitle            String?
+  seoDescription      String?
+  viewCount           Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Owner — either user or team
+  ownerUserId   String?  @unique
+  ownerTeamId   String?
+  owner         User?    @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  ownerTeam     Team?    @relation(fields: [ownerTeamId], references: [id])
+
+  // Relations
+  links            Link[]
+  integrations     Integration[]
+  clicks           Click[]
+  emailSubscribers EmailSubscriber[]
+
+  @@map("profiles")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 3: links
+// ──────────────────────────────────────────────────────
+model Link {
+  id            String       @id @default(uuid())
+  profileId     String
+  profile       Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  title         String
+  url           String
+  iconUrl       String?
+  type String @default("LINK")
+  isActive      Boolean      @default(true)
+  orderIndex    Int          @default(0)
+  clickCount    Int          @default(0)
+
+  // Smart link features (Pro)
+  scheduledAt   DateTime?
+  expiresAt     DateTime?
+  targetCountry String?
+  targetDevice String @default("ALL")
+
+  // Product card
+  productImage  String?
+  productPrice  Float?
+
+  // Gated content
+  gateType String?
+  gateAmount    Float?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  clicks        Click[]
+
+  @@index([profileId])
+  @@map("links")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 4: integrations
+// ──────────────────────────────────────────────────────
+model Integration {
+  id             String             @id @default(uuid())
+  profileId      String
+  profile        Profile            @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  service String
+  externalUserId String?
+  username       String?
+  authToken      String?            // AES-256 encrypted
+  refreshToken   String?            // AES-256 encrypted
+  tokenExpiresAt DateTime?
+  lastSyncedAt   DateTime?
+  syncData       String?              // Cached API response
+  isActive       Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([profileId, service])
+  @@map("integrations")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 5: clicks (Analytics)
+// ──────────────────────────────────────────────────────
+model Click {
+  id        String     @id @default(uuid())
+  linkId    String
+  link      Link       @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  profileId String
+  profile   Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  ipHash    String?    // SHA-256 hashed for GDPR
+  country   String?
+  city      String?
+  device String?
+  browser   String?
+  os        String?
+  referrer  String?
+  clickedAt DateTime   @default(now())
+
+  @@index([profileId, clickedAt])
+  @@index([linkId])
+  @@map("clicks")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 6: resumes (AI Resume Builder)
+// ──────────────────────────────────────────────────────
+model Resume {
+  id            String         @id @default(uuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String         @default("My Resume")
+  template String @default("ATS_CLEAN")
+  content       String           // Structured sections as JSON
+  atsScore      Int?           // 0-100
+  lastJobDesc   String?        // JD used for ATS check
+  pdfUrl        String?        // S3 path
+  docxUrl       String?        // S3 path
+  shareSlug     String?        @unique
+  sharePassword String?
+  shareExpiresAt DateTime?
+  viewCount     Int            @default(0)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  versions      DocumentVersion[]
+
+  @@index([userId])
+  @@map("resumes")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 7: cover_letters (AI Cover Letter Creator)
+// ──────────────────────────────────────────────────────
+model CoverLetter {
+  id             String              @id @default(uuid())
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String              @default("Cover Letter")
+  companyName    String?
+  roleName       String?
+  jobDescription String?
+  tone String @default("PROFESSIONAL")
+  template String @default("STANDARD")
+  content        String              // The letter text (HTML/Markdown)
+  pdfUrl         String?
+  docxUrl        String?
+  shareSlug      String?             @unique
+  sharePassword  String?
+  shareExpiresAt DateTime?
+  viewCount      Int                 @default(0)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  versions       DocumentVersion[]
+
+  @@index([userId])
+  @@map("cover_letters")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 8: portfolio_docs (Portfolio PDF Suite)
+// ──────────────────────────────────────────────────────
+model PortfolioDoc {
+  id         String           @id @default(uuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String
+  type String
+  content    String             // Structured doc content
+  pdfUrl     String?
+  shareSlug  String?          @unique
+  viewCount  Int              @default(0)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  versions   DocumentVersion[]
+
+  @@index([userId])
+  @@map("portfolio_docs")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 9: document_versions (Version History)
+// ──────────────────────────────────────────────────────
+model DocumentVersion {
+  id              String       @id @default(uuid())
+  documentType String
+  versionNumber   Int
+  contentSnapshot String         // Full content at this point
+
+  // Polymorphic-style FK (only one will be set)
+  resumeId        String?
+  resume          Resume?      @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  coverLetterId   String?
+  coverLetter     CoverLetter? @relation(fields: [coverLetterId], references: [id], onDelete: Cascade)
+  portfolioDocId  String?
+  portfolioDoc    PortfolioDoc? @relation(fields: [portfolioDocId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime     @default(now())
+
+  @@map("document_versions")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 10: payments
+// ──────────────────────────────────────────────────────
+model Payment {
+  id                  String        @id @default(uuid())
+  userId              String
+  user                User          @relation(fields: [userId], references: [id])
+  razorpayOrderId     String?
+  razorpayPaymentId   String?
+  stripeSessionId     String?
+  amount              Float
+  currency            String        @default("INR")
+  plan String
+  billingCycle String @default("MONTHLY")
+  status String @default("CREATED")
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([userId])
+  @@map("payments")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 11: teams
+// ──────────────────────────────────────────────────────
+model Team {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  plan String @default("AGENCY")
+  createdAt DateTime @default(now())
+
+  members   TeamMember[]
+  profiles  Profile[]
+  createdBy String
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id       String   @id @default(uuid())
+  teamId   String
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role String @default("EDITOR")
+  joinedAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+// ──────────────────────────────────────────────────────
+// TABLE 12: email_subscribers
+// ──────────────────────────────────────────────────────
+model EmailSubscriber {
+  id           String   @id @default(uuid())
+  profileId    String
+  profile      Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  email        String
+  name         String?
+  gdprConsent  Boolean  @default(false)
+  subscribedAt DateTime @default(now())
+  isActive     Boolean  @default(true)
+
+  @@unique([profileId, email])
+  @@index([profileId])
+  @@map("email_subscribers")
+}
+
+// ──────────────────────────────────────────────────────
+// API Keys (Public API access)
+// ──────────────────────────────────────────────────────
+model ApiKey {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyHash   String   @unique // SHA-256 hashed, shown only once
+  createdAt DateTime @default(now())
+  lastUsed  DateTime?
+
+  @@map("api_keys")
+}
