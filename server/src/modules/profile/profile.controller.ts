@@ -42,6 +42,12 @@ export class ProfileController {
     return this.profileService.checkUsername(username);
   }
 
+  // GET /api/profile/:username/qr — Public QR code (no auth)
+  @Get(':username/qr')
+  getPublicProfileQr(@Param('username') username: string) {
+    return this.profileService.getPublicProfileQr(username);
+  }
+
   // GET /api/profile/:username  — Public profile (no auth)
   @Get(':username')
   getPublicProfile(@Param('username') username: string, @Req() req: Request) {

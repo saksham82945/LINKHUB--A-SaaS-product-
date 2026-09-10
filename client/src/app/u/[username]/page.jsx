@@ -3,9 +3,10 @@ import PublicProfileClient from './PublicProfileClient';
 
 async function fetchProfile(username) {
   try {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
     const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL || '/api'}/profile/${username}`,
-      { next: { revalidate: 60 } }, // ISR — revalidate every 60 seconds
+      `${backendUrl}/api/profile/${username}`,
+      { next: { revalidate: 30 } },
     );
     if (!res.ok) return null;
     return res.json();

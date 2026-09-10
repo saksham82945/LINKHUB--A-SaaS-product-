@@ -9,10 +9,17 @@ const api = axios.create({
   },
 });
 
-// ── Request interceptor: attach access token from memory
+// ── Request interceptor: attach access token from memory / localStorage
 api.interceptors.request.use((config) => {
-  // Access token is stored in memory (not localStorage — XSS safe)
-  const token = (typeof window !== 'undefined') ? window.__accessToken : undefined;
+  let token = (typeof window !== 'undefined') ? window.__accessToken : undefined;
+  if (!token && typeof window !== 'undefined') {
+    try {
+      token = localStorage.getItem('accessToken');
+      if (token) {
+        window.__accessToken = token;
+      }
+    } catch {}
+  }
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -35,11 +42,16 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    if (!originalRequest) return Promise.reject(error);
 
-    const ignoreRoutes = ['/auth/refresh', '/auth/login', '/auth/register'];
-    if (error.response?.status === 401 && !originalRequest._retry && !ignoreRoutes.includes(originalRequest.url)) {
+    const url = originalRequest.url || '';
+    const isAuthRoute =
+      url.includes('/auth/refresh') ||
+      url.includes('/auth/login') ||
+      url.includes('/auth/register');
+
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthRoute) {
       if (isRefreshing) {
-        // Queue the request while refresh is in progress
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
@@ -57,9 +69,11 @@ api.interceptors.response.use(
         const { data } = await api.post('/auth/refresh');
         const newToken = data.accessToken;
 
-        // Store new token in memory
         if (typeof window !== 'undefined') {
           window.__accessToken = newToken;
+          try {
+            localStorage.setItem('accessToken', newToken);
+          } catch {}
         }
 
         processQueue(null, newToken);
@@ -67,9 +81,11 @@ api.interceptors.response.use(
         return api(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        // Clear token
         if (typeof window !== 'undefined') {
           window.__accessToken = undefined;
+          try {
+            localStorage.removeItem('accessToken');
+          } catch {}
         }
         return Promise.reject(refreshError);
       } finally {

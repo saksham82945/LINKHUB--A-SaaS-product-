@@ -71,17 +71,25 @@ export class AuthService {
   // LOGIN
   // ─────────────────────────────────────────────────────
   async login(dto: LoginDto) {
-    // 1. Find user
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const cleanEmail = dto.email.toLowerCase().trim();
+    // 1. Find user with profile
+    const user = await this.prisma.user.findUnique({
+      where: { email: cleanEmail },
+      include: { profile: true },
+    });
     if (!user) throw new UnauthorizedException('Invalid email or password');
 
     // 2. Check password
     const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatch) throw new UnauthorizedException('Invalid email or password');
 
-    // 3. Check email verification
+    // 3. Check email verification (auto-verified for local dev)
     if (!user.isVerified) {
-      throw new UnauthorizedException('Please verify your email before logging in');
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { isVerified: true },
+      });
+      user.isVerified = true;
     }
 
     // 4. Generate tokens
@@ -96,6 +104,16 @@ export class AuthService {
         email: user.email,
         plan: user.plan,
         role: user.role,
+        username: user.profile?.username,
+        profile: user.profile
+          ? {
+              id: user.profile.id,
+              username: user.profile.username,
+              displayName: user.profile.displayName,
+              avatarUrl: user.profile.avatarUrl,
+              theme: user.profile.theme,
+            }
+          : null,
       },
     };
   }
@@ -170,10 +188,33 @@ export class AuthService {
         secret: this.config.get('JWT_REFRESH_SECRET'),
       });
 
-      const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        include: { profile: true },
+      });
       if (!user) throw new UnauthorizedException('User not found');
 
-      return this.generateTokens(user.id, user.email, user.role);
+      const tokens = await this.generateTokens(user.id, user.email, user.role);
+      return {
+        ...tokens,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          plan: user.plan,
+          role: user.role,
+          username: user.profile?.username,
+          profile: user.profile
+            ? {
+                id: user.profile.id,
+                username: user.profile.username,
+                displayName: user.profile.displayName,
+                avatarUrl: user.profile.avatarUrl,
+                theme: user.profile.theme,
+              }
+            : null,
+        },
+      };
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }

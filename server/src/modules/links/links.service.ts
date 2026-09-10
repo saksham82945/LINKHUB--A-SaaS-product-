@@ -4,9 +4,12 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { CreateLinkDto, UpdateLinkDto, ReorderLinksDto } from './dto/links.dto';
+import * as QRCode from 'qrcode';
+import axios from 'axios';
 
 // Free plan max links
 const FREE_LINKS_LIMIT = 5;
@@ -16,6 +19,7 @@ export class LinksService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private config: ConfigService,
   ) {}
 
   // ─────────────────────────────────────────────────────
@@ -87,14 +91,21 @@ export class LinksService {
         ...(dto.title !== undefined && { title: dto.title }),
         ...(dto.url !== undefined && { url: dto.url }),
         ...(dto.iconUrl !== undefined && { iconUrl: dto.iconUrl }),
+        ...(dto.type !== undefined && { type: dto.type as any }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
         ...(dto.orderIndex !== undefined && { orderIndex: dto.orderIndex }),
-        ...(dto.scheduledAt !== undefined && { scheduledAt: new Date(dto.scheduledAt) }),
-        ...(dto.expiresAt !== undefined && { expiresAt: new Date(dto.expiresAt) }),
+        ...(dto.scheduledAt !== undefined && {
+          scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+        }),
+        ...(dto.expiresAt !== undefined && {
+          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        }),
         ...(dto.targetCountry !== undefined && { targetCountry: dto.targetCountry }),
         ...(dto.targetDevice !== undefined && { targetDevice: dto.targetDevice as any }),
         ...(dto.productImage !== undefined && { productImage: dto.productImage }),
         ...(dto.productPrice !== undefined && { productPrice: dto.productPrice }),
+        ...(dto.gateType !== undefined && { gateType: dto.gateType as any }),
+        ...(dto.gateAmount !== undefined && { gateAmount: dto.gateAmount }),
       },
     });
 
@@ -210,6 +221,125 @@ export class LinksService {
     }).catch(console.error);
 
     return { url: link.url };
+  }
+
+  // ─────────────────────────────────────────────────────
+  // QR CODE GENERATOR (Phase 9)
+  // ─────────────────────────────────────────────────────
+  async generateLinkQr(userId: string, linkId: string) {
+    const link = await this.getLinkOwned(userId, linkId);
+    const qrDataUrl = await QRCode.toDataURL(link.url, {
+      width: 400,
+      margin: 2,
+      color: {
+        dark: '#1e1b4b',
+        light: '#ffffff',
+      },
+    });
+
+    return {
+      qrCode: qrDataUrl,
+      url: link.url,
+      title: link.title,
+    };
+  }
+
+  async generateProfileQr(userId: string) {
+    const profile = await this.getProfileByUserId(userId);
+    const clientUrl = this.config.get('CLIENT_URL') || 'http://localhost:3000';
+    const profileUrl = `${clientUrl}/u/${profile.username}`;
+
+    const qrDataUrl = await QRCode.toDataURL(profileUrl, {
+      width: 400,
+      margin: 2,
+      color: {
+        dark: '#312e81',
+        light: '#ffffff',
+      },
+    });
+
+    return {
+      qrCode: qrDataUrl,
+      url: profileUrl,
+      username: profile.username,
+      displayName: profile.displayName,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────
+  // LINK HEALTH CHECKER (Phase 9)
+  // ─────────────────────────────────────────────────────
+  async checkLinkHealth(userId: string, linkId: string) {
+    const link = await this.getLinkOwned(userId, linkId);
+
+    // If it's a special type like tipjar or internal, report as active
+    if (['TIPJAR', 'EMBED', 'YOUTUBE', 'SPOTIFY'].includes(link.type) && !link.url.startsWith('http')) {
+      return {
+        linkId: link.id,
+        status: 'HEALTHY',
+        statusCode: 200,
+        responseTimeMs: 1,
+        message: 'Internal interactive widget',
+      };
+    }
+
+    try {
+      const startTime = Date.now();
+      const res = await axios.get(link.url, {
+        timeout: 6000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) LinkHub-Health/1.0' },
+        maxRedirects: 5,
+        validateStatus: () => true, // inspect whatever HTTP code returns
+      });
+      const responseTime = Date.now() - startTime;
+      const isOk = res.status >= 200 && res.status < 400;
+
+      return {
+        linkId: link.id,
+        status: isOk ? 'HEALTHY' : 'WARNING',
+        statusCode: res.status,
+        responseTimeMs: responseTime,
+        message: isOk ? 'Link is active and reachable' : `Returned status ${res.status}`,
+      };
+    } catch (err: any) {
+      return {
+        linkId: link.id,
+        status: 'DOWN',
+        statusCode: 0,
+        responseTimeMs: 0,
+        message: err.code === 'ECONNABORTED' ? 'Request timed out (server slow)' : (err.message || 'Host unreachable'),
+      };
+    }
+  }
+
+  async checkAllLinksHealth(userId: string) {
+    const profile = await this.getProfileByUserId(userId);
+    const links = await this.prisma.link.findMany({
+      where: { profileId: profile.id, isActive: true },
+      select: { id: true, url: true, type: true },
+    });
+
+    const results = await Promise.allSettled(
+      links.map((l) => this.checkLinkHealth(userId, l.id)),
+    );
+
+    const report: Record<string, any> = {};
+    results.forEach((r, idx) => {
+      const linkId = links[idx].id;
+      if (r.status === 'fulfilled') {
+        report[linkId] = r.value;
+      } else {
+        report[linkId] = {
+          linkId,
+          status: 'DOWN',
+          statusCode: 0,
+          responseTimeMs: 0,
+          message: 'Health check failed',
+        };
+      }
+    });
+
+    return report;
   }
 
   // ─────────────────────────────────────────────────────

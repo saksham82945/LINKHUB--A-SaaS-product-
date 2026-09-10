@@ -19,6 +19,8 @@ export enum LinkTypeEnum {
   TIPJAR = 'TIPJAR',
   GATED = 'GATED',
   DOCUMENT = 'DOCUMENT',
+  YOUTUBE = 'YOUTUBE',
+  SPOTIFY = 'SPOTIFY',
 }
 
 export enum TargetDeviceEnum {
@@ -98,6 +100,10 @@ export class UpdateLinkDto {
   iconUrl?: string;
 
   @IsOptional()
+  @IsEnum(LinkTypeEnum)
+  type?: LinkTypeEnum;
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 
@@ -128,6 +134,14 @@ export class UpdateLinkDto {
   @IsOptional()
   @IsNumber()
   productPrice?: number;
+
+  @IsOptional()
+  @IsString()
+  gateType?: string;
+
+  @IsOptional()
+  @IsNumber()
+  gateAmount?: number;
 }
 
 export class ReorderLinksDto {

@@ -225,4 +225,197 @@ Write a complete cover letter.`,
 
     return JSON.parse(completion.choices[0].message.content || '{"title":"Link"}');
   }
+
+  // ─────────────────────────────────────────────────────
+  // GENERATE PORTFOLIO CONTENT (Phase 8)
+  // ─────────────────────────────────────────────────────
+  async generatePortfolioContent(context: {
+    name: string;
+    bio?: string;
+    type?: string;
+    github?: any;
+    leetcode?: any;
+    resumeProjects?: any[];
+  }) {
+    const prompt = `
+Generate a structured, professional developer portfolio for:
+Name: ${context.name}
+Bio: ${context.bio || ''}
+Type: ${context.type || 'DEV_CARD'}
+GitHub data: ${JSON.stringify(context.github || {})}
+LeetCode data: ${JSON.stringify(context.leetcode || {})}
+Projects from resume: ${JSON.stringify(context.resumeProjects || [])}
+
+Return a valid JSON object with the following structure:
+{
+  "name": "${context.name}",
+  "headline": "Short, punchy professional title/headline (e.g. Senior Full-Stack Engineer)",
+  "bio": "Compelling, impressive 2-3 sentence elevator pitch / story highlighting impact and craftsmanship",
+  "location": "e.g. San Francisco, CA / Remote",
+  "status": "Available for high-impact roles",
+  "skills": [
+    { "category": "Frontend", "items": ["React", "Next.js", "TypeScript", "Tailwind CSS"] },
+    { "category": "Backend", "items": ["Node.js", "NestJS", "PostgreSQL", "Redis"] },
+    { "category": "DevOps & Cloud", "items": ["Docker", "AWS", "CI/CD", "Vercel"] },
+    { "category": "Tools & Methods", "items": ["Git", "REST / GraphQL", "Agile", "Testing"] }
+  ],
+  "projects": [
+    {
+      "title": "Project Name",
+      "description": "2-sentence impact-driven description of what it is and what was built.",
+      "tags": ["Next.js", "TypeScript", "PostgreSQL"],
+      "demoUrl": "https://example.com",
+      "githubUrl": "https://github.com/example",
+      "featured": true
+    }
+  ],
+  "stats": [
+    { "label": "Code Repos", "value": "20+" },
+    { "label": "Problems Solved", "value": "150+" },
+    { "label": "Stars & Contributions", "value": "500+" }
+  ],
+  "socials": {
+    "github": "",
+    "linkedin": "",
+    "twitter": "",
+    "website": ""
+  },
+  "theme": "dark-glass",
+  "accentColor": "#6366f1"
+}
+`;
+
+    const apiKey = this.config.get('OPENAI_API_KEY');
+    if (apiKey && apiKey !== 'mock_key' && !apiKey.startsWith('sk-test') && apiKey.length > 20) {
+      try {
+        const completion = await this.openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an elite developer portfolio strategist. Create compelling, high-converting portfolios showcasing projects, measurable metrics, and technical expertise. Return only strict JSON matching the requested schema.',
+            },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 1500,
+          response_format: { type: 'json_object' },
+        });
+
+        const parsed = JSON.parse(completion.choices[0].message.content || '{}');
+        if (parsed.name && parsed.headline) {
+          return parsed;
+        }
+      } catch (err) {
+        console.warn('OpenAI portfolio generation fallback triggered:', err.message);
+      }
+    }
+
+    return this.fallbackPortfolioContent(context);
+  }
+
+  private fallbackPortfolioContent(context: {
+    name: string;
+    bio?: string;
+    type?: string;
+    github?: any;
+    leetcode?: any;
+    resumeProjects?: any[];
+  }) {
+    const gh = context.github || {};
+    const lc = context.leetcode || {};
+
+    const projects = [];
+    if (context.resumeProjects && context.resumeProjects.length > 0) {
+      for (const p of context.resumeProjects.slice(0, 4)) {
+        projects.push({
+          title: p.name || p.title || 'Featured Project',
+          description: p.description || 'Full-stack application built for scale and high performance.',
+          tags: Array.isArray(p.tech) ? p.tech : ['React', 'Node.js', 'TypeScript'],
+          demoUrl: p.url || '',
+          githubUrl: p.githubUrl || '',
+          featured: true,
+        });
+      }
+    } else if (gh.topRepos && Array.isArray(gh.topRepos) && gh.topRepos.length > 0) {
+      for (const r of gh.topRepos.slice(0, 4)) {
+        projects.push({
+          title: r.name || 'Open Source Project',
+          description: r.description || `High performance repository with ${r.stars || 0} GitHub stars and active contributions.`,
+          tags: [r.language || 'TypeScript', 'Node.js', 'Web'],
+          demoUrl: r.homepage || '',
+          githubUrl: r.url || `https://github.com/${gh.username || 'developer'}/${r.name}`,
+          featured: true,
+        });
+      }
+    } else {
+      projects.push(
+        {
+          title: 'CloudScale SaaS Platform',
+          description: 'High-throughput distributed backend and responsive dashboard supporting real-time analytics and team collaboration.',
+          tags: ['Next.js', 'NestJS', 'PostgreSQL', 'Redis'],
+          demoUrl: 'https://example.com',
+          githubUrl: 'https://github.com',
+          featured: true,
+        },
+        {
+          title: 'AI Workflow Assistant',
+          description: 'Intelligent multi-model agentic application providing automated document analysis and code transformations.',
+          tags: ['React', 'TypeScript', 'OpenAI API', 'TailwindCSS'],
+          demoUrl: 'https://example.com',
+          githubUrl: 'https://github.com',
+          featured: true,
+        },
+        {
+          title: 'DevMetrics Dashboard',
+          description: 'Comprehensive developer analytics engine displaying repository traffic, code velocity, and algorithmic benchmarks.',
+          tags: ['TypeScript', 'Node.js', 'Chart.js', 'Docker'],
+          demoUrl: 'https://example.com',
+          githubUrl: 'https://github.com',
+          featured: false,
+        }
+      );
+    }
+
+    const stats = [];
+    if (gh.publicRepos !== undefined) {
+      stats.push({ label: 'Public Repos', value: `${gh.publicRepos}` });
+    } else {
+      stats.push({ label: 'Repositories', value: '25+' });
+    }
+    if (gh.totalStars !== undefined && gh.totalStars > 0) {
+      stats.push({ label: 'GitHub Stars', value: `${gh.totalStars}` });
+    } else {
+      stats.push({ label: 'Production Apps', value: '12+' });
+    }
+    if (lc.totalSolved !== undefined && lc.totalSolved > 0) {
+      stats.push({ label: 'LeetCode Solved', value: `${lc.totalSolved}` });
+    } else {
+      stats.push({ label: 'System Uptime', value: '99.9%' });
+    }
+
+    return {
+      name: context.name,
+      headline: context.bio ? `${context.bio.slice(0, 60)}...` : 'Senior Full-Stack Software Engineer',
+      bio: context.bio || `${context.name} is a software engineer dedicated to building resilient, beautiful, and user-centric web applications and distributed systems.`,
+      location: 'San Francisco, CA / Remote',
+      status: 'Available for high-impact roles',
+      skills: [
+        { category: 'Frontend', items: ['React', 'Next.js', 'TypeScript', 'Tailwind CSS', 'State Management'] },
+        { category: 'Backend', items: ['Node.js', 'NestJS', 'PostgreSQL', 'Redis', 'REST & GraphQL APIs'] },
+        { category: 'DevOps & Cloud', items: ['Docker', 'AWS S3', 'CI/CD Pipelines', 'Vercel', 'Linux'] },
+        { category: 'Architecture & Tools', items: ['Git', 'Microservices', 'Clean Code', 'Performance Optimization'] },
+      ],
+      projects,
+      stats,
+      socials: {
+        github: gh.username ? `https://github.com/${gh.username}` : '',
+        linkedin: '',
+        twitter: '',
+        website: '',
+      },
+      theme: 'dark-glass',
+      accentColor: '#6366f1',
+    };
+  }
 }

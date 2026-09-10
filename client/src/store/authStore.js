@@ -4,21 +4,26 @@ import api from '@/lib/api';
 // ── Zustand Auth Store
 export const useAuthStore = create((set) => ({
   user: null,
-  isLoading: false,
+  isLoading: true,
   isAuthenticated: false,
+  isInitialized: false,
 
   // ── Login
   login: async (email, password) => {
     set({ isLoading: true });
     try {
-      const { data } = await api.post('/auth/login', { email, password });
+      const cleanEmail = email.toLowerCase().trim();
+      const { data } = await api.post('/auth/login', { email: cleanEmail, password });
 
-      // Store access token in memory (XSS safe)
       if (typeof window !== 'undefined') {
         window.__accessToken = data.accessToken;
+        try {
+          localStorage.setItem('accessToken', data.accessToken);
+        } catch {}
       }
 
-      set({ user: data.user, isAuthenticated: true });
+      set({ user: data.user, isAuthenticated: true, isInitialized: true });
+      return data;
     } finally {
       set({ isLoading: false });
     }
@@ -28,8 +33,9 @@ export const useAuthStore = create((set) => ({
   register: async (name, email, password, username) => {
     set({ isLoading: true });
     try {
-      await api.post('/auth/register', { name, email, password, username });
-      // Don't auto-login — user must verify email first
+      const cleanEmail = email.toLowerCase().trim();
+      const res = await api.post('/auth/register', { name, email: cleanEmail, password, username });
+      return res.data;
     } finally {
       set({ isLoading: false });
     }
@@ -39,12 +45,16 @@ export const useAuthStore = create((set) => ({
   logout: async () => {
     try {
       await api.post('/auth/logout');
+    } catch {
+      // Ignore logout api errors
     } finally {
-      // Clear everything regardless of API response
       if (typeof window !== 'undefined') {
         window.__accessToken = undefined;
+        try {
+          localStorage.removeItem('accessToken');
+        } catch {}
       }
-      set({ user: null, isAuthenticated: false });
+      set({ user: null, isAuthenticated: false, isInitialized: true });
     }
   },
 
@@ -52,22 +62,37 @@ export const useAuthStore = create((set) => ({
   fetchMe: async () => {
     set({ isLoading: true });
     try {
+      if (typeof window !== 'undefined' && !window.__accessToken) {
+        try {
+          const savedToken = localStorage.getItem('accessToken');
+          if (savedToken) {
+            window.__accessToken = savedToken;
+          }
+        } catch {}
+      }
+
       const { data } = await api.get('/auth/me');
-      set({ user: data, isAuthenticated: true });
+      set({ user: data, isAuthenticated: true, isInitialized: true });
     } catch {
-      // Not logged in — that's fine
-      set({ user: null, isAuthenticated: false });
+      if (typeof window !== 'undefined') {
+        window.__accessToken = undefined;
+        try {
+          localStorage.removeItem('accessToken');
+        } catch {}
+      }
+      set({ user: null, isAuthenticated: false, isInitialized: true });
     } finally {
       set({ isLoading: false });
     }
   },
 
-  setUser: (user) => set({ user, isAuthenticated: !!user }),
+  setUser: (user) => set({ user, isAuthenticated: !!user, isInitialized: true }),
 }));
 
-// ── Helper selectors (use these in components instead of the whole store)
+// ── Helper selectors
 export const useUser = () => useAuthStore((s) => s.user);
 export const useIsAuthenticated = () => useAuthStore((s) => s.isAuthenticated);
+export const useIsInitialized = () => useAuthStore((s) => s.isInitialized);
 export const useIsPro = () => useAuthStore((s) =>
   ['PRO', 'AGENCY', 'ENTERPRISE'].includes(s.user?.plan ?? ''),
 );

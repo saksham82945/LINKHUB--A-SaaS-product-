@@ -4,10 +4,12 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { S3Service } from '../aws/s3.service';
 import { UpdateProfileDto } from './dto/profile.dto';
+import * as QRCode from 'qrcode';
 
 @Injectable()
 export class ProfileService {
@@ -15,6 +17,7 @@ export class ProfileService {
     private prisma: PrismaService,
     private redis: RedisService,
     private s3Service: S3Service,
+    private config: ConfigService,
   ) {}
 
   // ─────────────────────────────────────────────────────
@@ -120,9 +123,14 @@ export class ProfileService {
             type: true,
             orderIndex: true,
             clickCount: true,
+            scheduledAt: true,
+            expiresAt: true,
+            targetCountry: true,
+            targetDevice: true,
             productImage: true,
             productPrice: true,
             gateType: true,
+            gateAmount: true,
           },
         },
         integrations: {
@@ -143,6 +151,13 @@ export class ProfileService {
 
     if (!profile) throw new NotFoundException('Profile not found');
 
+    const now = new Date();
+    const visibleLinks = (profile.links || []).filter((link) => {
+      if (link.scheduledAt && new Date(link.scheduledAt) > now) return false;
+      if (link.expiresAt && new Date(link.expiresAt) <= now) return false;
+      return true;
+    });
+
     const result = {
       id: profile.id,
       username: profile.username,
@@ -157,7 +172,7 @@ export class ProfileService {
       seoTitle: profile.seoTitle,
       seoDescription: profile.seoDescription,
       viewCount: profile.viewCount,
-      links: profile.links,
+      links: visibleLinks,
       integrations: profile.integrations,
       plan: profile.owner?.plan || 'FREE',
     };
@@ -169,6 +184,35 @@ export class ProfileService {
     this.incrementViewCount(username).catch(console.error);
 
     return result;
+  }
+
+  // ─────────────────────────────────────────────────────
+  // GET PUBLIC PROFILE QR (Phase 9)
+  // ─────────────────────────────────────────────────────
+  async getPublicProfileQr(username: string) {
+    const profile = await this.prisma.profile.findUnique({
+      where: { username },
+      select: { username: true, displayName: true },
+    });
+    if (!profile) throw new NotFoundException('Profile not found');
+
+    const clientUrl = this.config.get('CLIENT_URL') || 'http://localhost:3000';
+    const profileUrl = `${clientUrl}/u/${profile.username}`;
+    const qrCode = await QRCode.toDataURL(profileUrl, {
+      width: 400,
+      margin: 2,
+      color: {
+        dark: '#1e1b4b',
+        light: '#ffffff',
+      },
+    });
+
+    return {
+      qrCode,
+      url: profileUrl,
+      username: profile.username,
+      displayName: profile.displayName,
+    };
   }
 
   // ─────────────────────────────────────────────────────

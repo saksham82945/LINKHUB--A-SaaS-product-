@@ -27,6 +27,21 @@ export class LinksController {
     return this.linksService.getMyLinks((req.user as any).id);
   }
 
+  // GET /api/links/profile/qr (Phase 9)
+  @Get('profile/qr')
+  @UseGuards(JwtAuthGuard)
+  getProfileQr(@Req() req: Request) {
+    return this.linksService.generateProfileQr((req.user as any).id);
+  }
+
+  // POST /api/links/health-all (Phase 9)
+  @Post('health-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  checkAllHealth(@Req() req: Request) {
+    return this.linksService.checkAllLinksHealth((req.user as any).id);
+  }
+
   // POST /api/links
   @Post()
   @UseGuards(JwtAuthGuard)
@@ -39,6 +54,21 @@ export class LinksController {
   @UseGuards(JwtAuthGuard)
   reorderLinks(@Req() req: Request, @Body() dto: ReorderLinksDto) {
     return this.linksService.reorderLinks((req.user as any).id, dto);
+  }
+
+  // GET /api/links/:id/qr (Phase 9)
+  @Get(':id/qr')
+  @UseGuards(JwtAuthGuard)
+  getLinkQr(@Req() req: Request, @Param('id') id: string) {
+    return this.linksService.generateLinkQr((req.user as any).id, id);
+  }
+
+  // POST /api/links/:id/health (Phase 9)
+  @Post(':id/health')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  checkLinkHealth(@Req() req: Request, @Param('id') id: string) {
+    return this.linksService.checkLinkHealth((req.user as any).id, id);
   }
 
   // POST /api/links/click/:id — Public (no auth)

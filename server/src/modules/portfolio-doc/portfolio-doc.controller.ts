@@ -19,6 +19,14 @@ export class PortfolioDocController {
     return this.service.createDoc((req.user as any).id, body);
   }
 
+  // ─────────────────────────────────────────────────────
+  // PUBLIC ACCESS (No JWT Guard) - Placed before :id
+  // ─────────────────────────────────────────────────────
+  @Get('public/:shareSlug')
+  getPublic(@Param('shareSlug') shareSlug: string) {
+    return this.service.getPublicDoc(shareSlug);
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   getOne(@Req() req: Request, @Param('id') id: string) {
@@ -38,14 +46,26 @@ export class PortfolioDocController {
     return this.service.deleteDoc((req.user as any).id, id);
   }
 
+  @Post(':id/ai-generate')
+  @UseGuards(JwtAuthGuard)
+  aiGenerate(@Req() req: Request, @Param('id') id: string) {
+    return this.service.aiGenerate((req.user as any).id, id);
+  }
+
+  @Post(':id/share')
+  @UseGuards(JwtAuthGuard)
+  toggleShare(@Req() req: Request, @Param('id') id: string) {
+    return this.service.toggleShareSlug((req.user as any).id, id);
+  }
+
   @Get(':id/pdf')
   @UseGuards(JwtAuthGuard)
   async downloadPdf(@Req() req: Request, @Param('id') id: string, @Res() res: Response) {
     const pdfBuffer = await this.service.generatePdf((req.user as any).id, id);
-    
+
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="dev-card-${id}.pdf"`,
+      'Content-Disposition': `attachment; filename="portfolio-${id}.pdf"`,
       'Content-Length': pdfBuffer.length,
     });
 
